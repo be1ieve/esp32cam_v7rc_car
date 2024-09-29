@@ -59,8 +59,8 @@ void cameraInit(){
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
-  config.frame_size = FRAMESIZE_VGA; // 640*480
-  //config.frame_size = FRAMESIZE_QVGA; // 320*240
+  //config.frame_size = FRAMESIZE_VGA; // 640*480
+  config.frame_size = FRAMESIZE_QVGA; // 320*240
   //config.frame_size = FRAMESIZE_QQVGA; // 160*120
   config.pixel_format = PIXFORMAT_JPEG;  // for streaming
   config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
@@ -134,7 +134,7 @@ static esp_err_t stream_handler(httpd_req_t *req){
      * Error code 45062: camera stream disconnected. timeout or normal exit
      * When grabing image using aduino library, you will always find this error flooding.
     */
-    if(res != ESP_OK || res != 45062){
+    if(res != ESP_OK){
       Serial.printf("Error code: %d\n", res);
       break;
     }

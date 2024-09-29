@@ -13,7 +13,7 @@
  * 
  * Webcam streaming on http://<IP>:81/stream
  * Camera is striped down to ai-thinker esp32cam only. Find coresponding settings from official CameraWebServer example.
- * Default resolution is 640x480. To change it, check official example and change it in cameraInit() inside camera.h.
+ * Default resolution is set to 320x240. To change it, check official example and change it in cameraInit() inside camera.h.
  * 
  * GPIO-4 is free but still connects to onboard flash LED
  * GPIO-16 can be free if PSRAM is not used
@@ -57,18 +57,12 @@
 #define MOTOR2_PWM_PIN 15
 #define MOTOR2_DIR_PIN 14
 
-/*************************************************************
- * 
- * Normally you don't have to change anything below
- * 
-**************************************************************/
-
 /*
  * variables for servo control
  */
 #define SERVO_DEFAULT_ANGLE 90
 int turningServoCurrentPosition = SERVO_DEFAULT_ANGLE; // default position at 90 degrees.
-int turningServoTargetPosition = SERVO_DEFAULT_ANGLE; // tracking target position in loop() to slow down servo movement
+int turningServoTargetPosition = SERVO_DEFAULT_ANGLE; // tracking target position in loop()
 Servo turningServo;
 
 /*
@@ -106,11 +100,7 @@ WiFiManager wm;
 int failsafeCounter = FAILSAFE_MAX;
 
 
-/*
- * Decode basic two V7RC format: SRV1000200015001500# and SRT1000200015001500#
- * Both contains 4 channels ranging from 1000 to 2000
- * Assume the remote controller is set to default: outputs between 1000 to 2000 and centered at 1500.
-*/
+
 void setup(){
   Serial.begin(115200);      // initialize serial communication
   WiFi.mode(WIFI_STA); // explicitly set mode, esp defaults to STA+AP  
@@ -120,7 +110,7 @@ void setup(){
 
   digitalWrite(NOTIFY_LED, LOW); // LED ON
   delay(3000); // wait for 3 seconds
-  if (digitalRead(WM_TRIGGER_PIN) == LOW){
+  if (digitalRead(WM_TRIGGER_PIN) == LOW){ // pressed
     wm.setShowStaticFields(true); // enable to set static IP
     Serial.println("Starting config portal...");
     wm.startConfigPortal();
@@ -169,19 +159,24 @@ void setup(){
   Serial.printf(":%d\n",udpPort);
 }
 
+/*
+ * Decode basic two V7RC format: SRV1000200015001500# and SRT1000200015001500#
+ * Both contains 4 channels ranging from 1000 to 2000
+ * Assume the remote controller is set to default: outputs between 1000 to 2000 and centered at 1500.
+*/
 void loop(){
   if(udp.parsePacket() > 0){ // UDP packet arrived
     udp.read(packetBuffer, 60); // read a packet with buffer larger enough to fit more than one command
     String receiveData = String(packetBuffer);
     receiveData.trim(); // Remove leading and trailing whitespaces in place
-    if (receiveData.startsWith("SRT") || receiveData.startsWith("SRV")){ // V7RC format see comments above
+    if (receiveData.startsWith("SRT") || receiveData.startsWith("SRV")){ // V7RC packet format see comments above
       int ch1_data=(receiveData.substring(3,7)).toInt(); 
       int ch2_data=(receiveData.substring(7,11)).toInt();
       int ch3_data=(receiveData.substring(11,15)).toInt(); 
       int ch4_data=(receiveData.substring(15,19)).toInt();
       Serial.printf("CH1: %d, CH2: %d, CH3: %d, CH4: %d\n", ch1_data, ch2_data, ch3_data, ch4_data);
       
-      failsafeCounter = FAILSAFE_MAX; // reset failsafe value
+      failsafeCounter = FAILSAFE_MAX; // reset failsafe value when valid data received
 
       turningServoTargetPosition = map(ch1_data, 1000, 2000, 0, 180); // mapping channel value to angle
       
@@ -213,7 +208,22 @@ void loop(){
   } // end of parsing packet
 
   /*
-   * slowly turn servo and motors, or it will crash
+   * Failsave enables when no valid new UDP data in time. 
+   * It overwrites target values to let servo and motors going back to natural position.
+   */
+  if(failsafeCounter <= 0){
+    turningServoTargetPosition = SERVO_DEFAULT_ANGLE;
+    pwm1TargetDirection = false;
+    pwm1TargetSpeed = 0;
+    pwm2TargetDirection = false;
+    pwm2TargetSpeed = 0;
+    failsafeCounter = FAILSAFE_MAX / 2; // reset counter with a lower number
+  }
+  else failsafeCounter--;
+
+  /*
+   * Finally slowly turn servo and motors to target position. 
+   * Changing speed too fast will crash esp32
    */
   if (turningServoCurrentPosition < turningServoTargetPosition) turningServoCurrentPosition++;
   else if (turningServoCurrentPosition > turningServoTargetPosition) turningServoCurrentPosition--;
@@ -244,14 +254,4 @@ void loop(){
   pwm2.write(pwm2CurrentSpeed);
 
   delay(2); // one step delay
-  if(failsafeCounter <= 0){
-    turningServoTargetPosition = SERVO_DEFAULT_ANGLE;
-    pwm1TargetDirection = false;
-    pwm1TargetSpeed = 0;
-    pwm2TargetDirection = false;
-    pwm2TargetSpeed = 0;
-    failsafeCounter = FAILSAFE_MAX / 2; // reset counter with a lower number
-  }
-  else failsafeCounter--;
-
 }
