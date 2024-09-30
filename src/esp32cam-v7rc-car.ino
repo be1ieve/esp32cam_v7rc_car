@@ -51,6 +51,8 @@
  * That means the PWM value corespond to the output speed is reversed:
  * When direction pin is HIGH, higher PWM value means slower speed, 
  * and when direction pin is LOW, higher PWM value means faster speed.
+ * 
+ * Default we should set direction to LOW and speed to 0
  */
 #define MOTOR1_PWM_PIN 12
 #define MOTOR1_DIR_PIN 13
@@ -70,12 +72,12 @@ Servo turningServo;
  */
 ESP32PWM pwm1;
 ESP32PWM pwm2;
-boolean pwm1CurrentDirection = true;
-boolean pwm1TargetDirection = true;
+boolean pwm1CurrentDirection = false;
+boolean pwm1TargetDirection = false;
 int pwm1CurrentSpeed = 0;
 int pwm1TargetSpeed = 0;
-boolean pwm2CurrentDirection = true;
-boolean pwm2TargetDirection = true;
+boolean pwm2CurrentDirection = false;
+boolean pwm2TargetDirection = false;
 int pwm2CurrentSpeed = 0;
 int pwm2TargetSpeed = 0;
 
@@ -185,9 +187,11 @@ void loop(){
         pwm1TargetSpeed = map(ch2_data, 1500, 2000, 0, 255);
       } else if(ch2_data < 1450){ // backward
         pwm1TargetDirection = true;
-        pwm1TargetSpeed = map(ch2_data, 1500, 1000, 255, 0);
+        pwm1TargetSpeed = map(ch2_data, 1500, 1000, 0, 255);
       } else{ // stop
-        pwm1TargetDirection = false;
+        //pwm1TargetDirection = false;
+        //if(pwm1TargetDirection) pwm1TargetSpeed = 255;
+        //else pwm1TargetSpeed = 0;
         pwm1TargetSpeed = 0;
       }
 
@@ -196,9 +200,11 @@ void loop(){
         pwm2TargetSpeed = map(ch3_data, 1500, 2000, 0, 255);
       } else if(ch3_data < 1450){ // backward
         pwm2TargetDirection = true;
-        pwm2TargetSpeed = map(ch3_data, 1500, 1000, 255, 0);
+        pwm2TargetSpeed = map(ch3_data, 1500, 1000, 0, 255);
       } else{ // stop
-        pwm2TargetDirection = false;
+        //pwm2TargetDirection = false;
+        //if(pwm2TargetDirection) pwm2TargetSpeed = 255;
+        //else pwm2TargetSpeed = 0;
         pwm2TargetSpeed = 0;
       }
     }
@@ -239,7 +245,9 @@ void loop(){
     if(pwm1CurrentSpeed > pwm1TargetSpeed) pwm1CurrentSpeed--;
     else pwm1CurrentSpeed++;
   }
-  pwm1.write(pwm1CurrentSpeed);
+  //pwm1.write(pwm1CurrentSpeed);
+  if(pwm1CurrentDirection) pwm1.write(255-pwm1CurrentSpeed);
+  else pwm1.write(pwm1CurrentSpeed);
 
   if(pwm2CurrentDirection != pwm2TargetDirection){ // different direction
     if(pwm2CurrentSpeed > 0) pwm2CurrentSpeed--; // speed down
@@ -251,7 +259,9 @@ void loop(){
     if(pwm2CurrentSpeed > pwm2TargetSpeed) pwm2CurrentSpeed--;
     else pwm2CurrentSpeed++;
   }
-  pwm2.write(pwm2CurrentSpeed);
+  //pwm2.write(pwm2CurrentSpeed);
+  if(pwm2CurrentDirection) pwm2.write(255-pwm2CurrentSpeed);
+  else pwm2.write(pwm2CurrentSpeed);
 
   delay(2); // one step delay
 }
