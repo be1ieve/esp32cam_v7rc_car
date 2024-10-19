@@ -1,22 +1,34 @@
 
 /*
- * This program needs an external wifi network to connect to.
- * Using WiFiManager, there's no need to write wifi credencial here.
- * When booted, onboard LED will turn on for a few second. Hold IO-0 to GND for three seconds.
- * Then search for wifi on your cellphone, a new ESP32-XXXXXX AP will show up.
+ * This program needs an external wifi network, use existing one or wifi sharing AP on your phone.
+ * 
+ * There's no need to write wifi credencial here, WiFiManager kicks in if needed:
+ * When booted, it will try to connect to previous connected network. If failed, WiFiManager runs automatically.
+ * Another way to force enable WiFiManager is: Hold <WM_TRIGGER_PIN> to GND for three seconds right after power on.
+ *
+ * When WiFiManager activates, this device will switch to WiFi AP mode.
+ * Search for wifi on your phone or computer, a new "ESP32-XXXXXXXX" AP will show up.
  * Connect to this AP and go to http://192.168.4.1/ to update your wifi settings.
  * 
- * V7RC control send to UDP://<IP>:6188
+ * V7RC app will send data to UDP://<IP>:6188
  * Channel-1 controls the servo on GPIO-2
  * Channel-2 controls one motor on GPIO-12 and GPIO-13
  * Channel-3 controls the other motor on GPIO-14 and GPIO-15
  * 
- * Webcam streaming on http://<IP>:81/stream
- * Camera is striped down to ai-thinker esp32cam only. Find coresponding settings from official CameraWebServer example.
- * Default resolution is set to 320x240. To change it, check official example and change it in cameraInit() inside camera.h.
+ * Webcam is streaming on http://<IP>:81/stream, same URL as official example.
+ * Most of the settings are moved into camera.h
+ * Camera config is striped down to ai-thinker esp32cam only. Find coresponding settings from official CameraWebServer example.
+ * Default resolution is set to 320x240. Don't know why, but 160x120(QQVGA) setting crashs most of the time.
+ * To change the camera resolution, it's in cameraInit() inside camera.h.
  * 
- * GPIO-4 is free but still connects to onboard flash LED
- * GPIO-16 can be free if PSRAM is not used
+ * There are also two LED channels available for ESP32CAM: GPIO-4 and GPIO-16
+ * Note that GPIO-4 is free but it connects to onboard super bright flash LED.
+ * To use GPIO-4, consider to remove or break onboard LED.
+ * GPIO-16 is a little tricky, you need to turn off PSRAM support from compiler settings:
+ * 1. Change board type from "AiThinker ESP32-CAM" to "ESP32 Dev module".
+ * 2. Check the PSRAM section is set to "Disabled".
+ * 3. In camera.h file, make sure "config.fb_location = CAMERA_FB_IN_DRAM". This will also restrict "config.frame_size" to lower resolution.
+ * 
  * 
  * WiFiManager and ESP32Servo libraries come from github.
  * Many thanks to tzapu and madhephaestus!
@@ -35,7 +47,24 @@
 
 #include "camera.h" // not a library, just put those copied things aside.
 
+/*
+ * Two LED channel available, but no PWM support, just ON and OFF state.
+ * GPIO-4 and GPIO-16 can be used with caution.
+ * Set to -1 to disable it.
+ * Also, those LED will blink when disconnected from controller.
+ */
+#define LED1_PIN 4
+#define LED2_PIN -1
+
+/*
+ * Choose a GPIO pin and connect to a button.
+ * This sets internal pull-up resistor on, so just connect the other side to GND is enough.
+ */
 #define WM_TRIGGER_PIN 0 // wifimanager trigger pin
+
+/*
+ * An almost unnoticeable red LED on board.
+ */
 #define NOTIFY_LED 33 // Use esp32cam onboard red led, inverted
 
 /*
@@ -51,8 +80,12 @@
  * That means the PWM value corespond to the output speed is reversed:
  * When direction pin is HIGH, higher PWM value means slower speed, 
  * and when direction pin is LOW, higher PWM value means faster speed.
- * 
- * Default we should set direction to LOW and speed to 0
+ * For example if we want to stop the motor, we need to do either: 
+ *   Set DIR_PIN to LOW and set PWM_PIN to MAX, or
+ *   Set DIR_PIN to HIGH and set PWM_PIN to 0 
+ *
+ * It doesn't matter which pin connects to which side of the motor. If motor spins backward, just swap it.
+ *
  */
 #define MOTOR1_PWM_PIN 12
 #define MOTOR1_DIR_PIN 13
@@ -86,9 +119,14 @@ int pwm2TargetSpeed = 0;
  */
 WiFiUDP udp;
 const int udpPort = 6188; // For V7RC control, default 6188
-bool udp_packet_not_empty = false;
-bool udp_packet_loaded = false;
 char packetBuffer[64];
+
+/*
+ * variables for LED control
+ */
+boolean led1State = false;
+boolean led2State = false;
+
 
 /*
  * WiFi Manager for selecting new wifi and reconnecting to existing wifi
@@ -98,10 +136,10 @@ WiFiManager wm;
 /*
  * Failsafe settings to force device to stop
  */
-#define FAILSAFE_MAX 500 // max steps without updating data
+#define STEP_DELAY 2
+#define FAILSAFE_MAX 1000 // max steps without updating data
 int failsafeCounter = FAILSAFE_MAX;
-
-
+boolean failsafeLedState = true;
 
 void setup(){
   Serial.begin(115200);      // initialize serial communication
@@ -109,8 +147,14 @@ void setup(){
 
   pinMode(WM_TRIGGER_PIN, INPUT_PULLUP);
   pinMode(NOTIFY_LED, OUTPUT); // onboard led, inverted
-
   digitalWrite(NOTIFY_LED, LOW); // LED ON
+
+  pinMode(LED1_PIN, OUTPUT);
+  pinMode(LED2_PIN, OUTPUT);
+  digitalWrite(LED1_PIN, LOW); // LED OFF
+  digitalWrite(LED2_PIN, LOW); // LED OFF
+  
+
   delay(3000); // wait for 3 seconds
   if (digitalRead(WM_TRIGGER_PIN) == LOW){ // pressed
     wm.setShowStaticFields(true); // enable to set static IP
@@ -130,6 +174,8 @@ void setup(){
   }
   digitalWrite(NOTIFY_LED, HIGH); // LED OFF when connected
   
+  Serial.println("wifi init ready");
+
   ESP32PWM::allocateTimer(1); // Timer 0 used by camera, use timer1 instead
   turningServo.setPeriodHertz(50); // standard 50 hz servo
   turningServo.attach(TURNING_SERVO_PIN, 1000, 2000);
@@ -138,13 +184,15 @@ void setup(){
   ESP32PWM::allocateTimer(2); // use timer2 for motors
   pinMode(MOTOR1_DIR_PIN, OUTPUT);
   pinMode(MOTOR1_PWM_PIN, OUTPUT);
-  pwm1.attachPin(MOTOR1_PWM_PIN,500,8);
+  pwm1.attachPin(MOTOR1_PWM_PIN,500,8); // 8bit resolution, 0-255
   //Serial.printf("PWM1 on timer %d\n", pwm1.getTimer());
 
   pinMode(MOTOR2_DIR_PIN, OUTPUT);
   pinMode(MOTOR2_PWM_PIN, OUTPUT);
-  pwm2.attachPin(MOTOR2_PWM_PIN,500,8);
+  pwm2.attachPin(MOTOR2_PWM_PIN,500,8); // 8bit resolution, 0-255
   //Serial.printf("PWM1 on timer %d\n", pwm1.getTimer());
+
+  Serial.println("motor init ready");
 
   cameraInit();
 
@@ -162,9 +210,16 @@ void setup(){
 }
 
 /*
- * Decode basic two V7RC format: SRV1000200015001500# and SRT1000200015001500#
+ * Decode basic V7RC formats:
+ * Motor control: SRV1000200015001500# or SRT1000200015001500#
  * Both contains 4 channels ranging from 1000 to 2000
  * Assume the remote controller is set to default: outputs between 1000 to 2000 and centered at 1500.
+ *
+ * LED control: LED0000FFFA00000000# 
+ * Contains 4 full color LED channels ranging from 0000 to FFFA
+ * 4 HEX values represents: Red, Green, Blue, and Motion
+ * Here we only detect if red value is 0 or not
+ * 
 */
 void loop(){
   if(udp.parsePacket() > 0){ // UDP packet arrived
@@ -188,10 +243,7 @@ void loop(){
       } else if(ch2_data < 1450){ // backward
         pwm1TargetDirection = true;
         pwm1TargetSpeed = map(ch2_data, 1500, 1000, 0, 255);
-      } else{ // stop
-        //pwm1TargetDirection = false;
-        //if(pwm1TargetDirection) pwm1TargetSpeed = 255;
-        //else pwm1TargetSpeed = 0;
+      } else{ // stop without changing direction
         pwm1TargetSpeed = 0;
       }
 
@@ -201,12 +253,15 @@ void loop(){
       } else if(ch3_data < 1450){ // backward
         pwm2TargetDirection = true;
         pwm2TargetSpeed = map(ch3_data, 1500, 1000, 0, 255);
-      } else{ // stop
-        //pwm2TargetDirection = false;
-        //if(pwm2TargetDirection) pwm2TargetSpeed = 255;
-        //else pwm2TargetSpeed = 0;
+      } else{ // stop without changing direction
         pwm2TargetSpeed = 0;
       }
+    }
+    else if(receiveData.startsWith("LED")){
+      if(receiveData.charAt(3) == '0') led1State = false;
+      else led1State = true;
+      if(receiveData.charAt(7) == '0') led2State = false;
+      else led2State = true;
     }
     else{ // not a v7rc packet
       Serial.println(packetBuffer);
@@ -216,6 +271,7 @@ void loop(){
   /*
    * Failsave enables when no valid new UDP data in time. 
    * It overwrites target values to let servo and motors going back to natural position.
+   * And then flash both LED to notify user.
    */
   if(failsafeCounter <= 0){
     turningServoTargetPosition = SERVO_DEFAULT_ANGLE;
@@ -223,10 +279,19 @@ void loop(){
     pwm1TargetSpeed = 0;
     pwm2TargetDirection = false;
     pwm2TargetSpeed = 0;
-    failsafeCounter = FAILSAFE_MAX / 2; // reset counter with a lower number
-  }
-  else failsafeCounter--;
 
+    digitalWrite(LED1_PIN, failsafeLedState);
+    digitalWrite(LED2_PIN, failsafeLedState);
+    failsafeLedState = !failsafeLedState;
+
+    failsafeCounter = FAILSAFE_MAX /2; // reset counter with a lower number
+  }
+  else if(failsafeCounter > FAILSAFE_MAX /2 ){ // back to normal
+    digitalWrite(LED1_PIN, led1State);
+    digitalWrite(LED2_PIN, led2State);
+  }
+  failsafeCounter--;
+  
   /*
    * Finally slowly turn servo and motors to target position. 
    * Changing speed too fast will crash esp32
@@ -243,9 +308,8 @@ void loop(){
     }
   } else{ // same direction
     if(pwm1CurrentSpeed > pwm1TargetSpeed) pwm1CurrentSpeed--;
-    else pwm1CurrentSpeed++;
+    else if(pwm1CurrentSpeed < pwm1TargetSpeed) pwm1CurrentSpeed++;
   }
-  //pwm1.write(pwm1CurrentSpeed);
   if(pwm1CurrentDirection) pwm1.write(255-pwm1CurrentSpeed);
   else pwm1.write(pwm1CurrentSpeed);
 
@@ -257,11 +321,10 @@ void loop(){
     }
   } else{ // same direction
     if(pwm2CurrentSpeed > pwm2TargetSpeed) pwm2CurrentSpeed--;
-    else pwm2CurrentSpeed++;
+    else if(pwm2CurrentSpeed < pwm2TargetSpeed)pwm2CurrentSpeed++;
   }
-  //pwm2.write(pwm2CurrentSpeed);
   if(pwm2CurrentDirection) pwm2.write(255-pwm2CurrentSpeed);
   else pwm2.write(pwm2CurrentSpeed);
 
-  delay(2); // one step delay
+  delay(STEP_DELAY); // one step delay
 }

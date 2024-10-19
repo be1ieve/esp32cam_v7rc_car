@@ -61,7 +61,7 @@ void cameraInit(){
   config.xclk_freq_hz = 20000000;
   //config.frame_size = FRAMESIZE_VGA; // 640*480
   config.frame_size = FRAMESIZE_QVGA; // 320*240
-  //config.frame_size = FRAMESIZE_QQVGA; // 160*120
+  //config.frame_size = FRAMESIZE_QQVGA; // 160*120 (might crash)
   config.pixel_format = PIXFORMAT_JPEG;  // for streaming
   config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
   config.fb_location = CAMERA_FB_IN_DRAM;
