@@ -54,7 +54,7 @@
  * Also, those LED will blink when disconnected from controller.
  */
 #define LED1_PIN 4
-#define LED2_PIN -1
+#define LED2_PIN 16
 
 /*
  * Choose a GPIO pin and connect to a button.
@@ -64,8 +64,10 @@
 
 /*
  * An almost unnoticeable red LED on board.
+ * Turn on when boot, turn off when external wifi connected.
+ * Useless if LED channel is used because those two will blink when no UDP packet received. 
  */
-#define NOTIFY_LED 33 // Use esp32cam onboard red led, inverted
+#define NOTIFY_LED 33 // Use esp32cam onboard red led, GPIO-33. On/Off status is inverted.
 
 /*
  * Below are servo configurations. Change these to fit this device.
@@ -87,10 +89,10 @@
  * It doesn't matter which pin connects to which side of the motor. If motor spins backward, just swap it.
  *
  */
-#define MOTOR1_PWM_PIN 12
-#define MOTOR1_DIR_PIN 13
-#define MOTOR2_PWM_PIN 15
-#define MOTOR2_DIR_PIN 14
+#define MOTOR1_PWM_PIN 15
+#define MOTOR1_DIR_PIN 14
+#define MOTOR2_PWM_PIN 12
+#define MOTOR2_DIR_PIN 13
 
 /*
  * variables for servo control
