@@ -1,5 +1,7 @@
 ESP32CAM+V7RC FPV視訊小車
 
+![two rc caar image](/media/two_cars.jpg)
+
 # What is this code
 This code turns ESP32cam into a RC car system with FPV camera, and able to control two motors, one servo, two LEDs  at the same time.
 The system design is built around V7RC mobile app, a RC controller app that can run on [android](https://play.google.com/store/apps/details?id=com.v7idea.v7rcliteandroidsdkversion) and [IOS](https://apps.apple.com/tw/app/v7rc/id1390983964), providing motor control, camera view and even more.
@@ -30,7 +32,8 @@ This is where to set SSID, password, and even static IP address. After saving da
 For example, if the device IP is 192.168.1.234, then the settings will be "192.168.1.234" for "IP" and "6188" for Port. And the IPCamera will be "http://192.168.1.234:81/stream".
 * Set the interface to "car" or "tank", and change the coresponding channels by pressing "CH" button on the top left.
 * Now try to move the joystick and see if everything works.
-### Networl Protocols
+
+### Supported V7RC Message Protocols
 #### Motor control message
 This system supports basic two types: SRV and SRT.
 The message will be like: **SRV1111222233334444#** or **SRT1111222233334444#** where 1, 2, 3, and 4 means four different motor channels. These values are generic PWM control signal ranging from 1000 to 2000, and 1500 normally means its center/netual position.
@@ -42,7 +45,7 @@ Open the "extra" menu on the top right connor, L1 means LED1 and L2 means LED2. 
 Note that unlike motor message sends periodcally, LED message only sends when button pressed. Sometime the light status might go wrong after boot. Just reset them by press any of the first four led button to resend LED message.
 
 # Hardware requirement
-
+![Pin to pin connection](/media/wiring.png)
 ## Pin Connection
 * Require 5V power source to run everything.
 * The servo is connected to GPIO-2 directly.
@@ -73,5 +76,6 @@ For GPIO-16, set arduino target board from "AiThinker ESP32-CAM" to "**ESP32 Dev
 ## Motor direction reversed
 As DC motors can run both direction, this happens very often. Just swap two connected cables.
 ## WiFi signal unstable
+![add 1pf between antenna end and GND](/media/antenna_hack.jpg)
 ESP32CAM built-in PCB antenna sometimes cause connection problems. There's a dirty hack: add 1pF capacitor at the end of the antenna and GND. Note the outer chassis is connected to GND as well, no need to scrap the solder mask.
 If that does not work, an overall solution is using an external antenna instead.
