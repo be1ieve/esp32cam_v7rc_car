@@ -48,10 +48,26 @@
 #include "camera.h" // not a library, just put those copied things aside.
 
 /*
+ * For toy RC car, turning motor don't use PWM but always goes to full power. If PWM is still used, it won't have enough power to turn.
+ * In that case, choosing which motor corespond to turning motor and disable PWM.
+ * Deadzone will force speed below this value set to 0. Full speed range is 0 to 255. 
+ */
+#define MOTOR1_USE_PWM true
+#define MOTOR2_USE_PWM true
+
+/*
+ * Servo angle can range from 0 to 180
+ * This default value applies when powered.
+ */
+#define SERVO_DEFAULT_ANGLE 90
+
+/*
  * Two LED channel available, but no PWM support, just ON and OFF state.
  * GPIO-4 and GPIO-16 can be used with caution.
  * Set to -1 to disable it.
  * Also, those LED will blink when disconnected from controller.
+ * 
+ * Note the onboard red LED is on GPIO-33, not used for now.
  */
 #define LED1_PIN 4
 #define LED2_PIN 16
@@ -61,20 +77,6 @@
  * This sets internal pull-up resistor on, so just connect the other side to GND is enough.
  */
 #define WM_TRIGGER_PIN 0 // wifimanager trigger pin
-
-/*
- * An almost unnoticeable red LED on board.
- * Turn on when boot, turn off when external wifi connected.
- * Useless if LED channel is used because those two will blink when no UDP packet received. 
- */
-#define NOTIFY_LED 33 // Use esp32cam onboard red led, GPIO-33. On/Off status is inverted.
-
-/*
- * Below are servo configurations. Change these to fit this device.
- * Since every servo needs to centered before install, still some fine tuning is required.
- * For turning servo, lower value means left and higher value means right.
- */
-#define TURNING_SERVO_PIN 2
 
 /*
  * For L9110s and DRV8833, only two pins required.
@@ -95,9 +97,15 @@
 #define MOTOR2_DIR_PIN 13
 
 /*
+ * Deadzone will force speed below this value set to 0. Full speed range is 0 to 255.
+ */
+#define MOTOR1_NOPWM_DEADZONE 20
+#define MOTOR2_NOPWM_DEADZONE 20
+
+/*
  * variables for servo control
  */
-#define SERVO_DEFAULT_ANGLE 90
+#define TURNING_SERVO_PIN 2
 int turningServoCurrentPosition = SERVO_DEFAULT_ANGLE; // default position at 90 degrees.
 int turningServoTargetPosition = SERVO_DEFAULT_ANGLE; // tracking target position in loop()
 Servo turningServo;
@@ -148,15 +156,12 @@ void setup(){
   WiFi.mode(WIFI_STA); // explicitly set mode, esp defaults to STA+AP  
 
   pinMode(WM_TRIGGER_PIN, INPUT_PULLUP);
-  pinMode(NOTIFY_LED, OUTPUT); // onboard led, inverted
-  digitalWrite(NOTIFY_LED, LOW); // LED ON
 
   pinMode(LED1_PIN, OUTPUT);
   pinMode(LED2_PIN, OUTPUT);
   digitalWrite(LED1_PIN, LOW); // LED OFF
   digitalWrite(LED2_PIN, LOW); // LED OFF
   
-
   delay(3000); // wait for 3 seconds
   if (digitalRead(WM_TRIGGER_PIN) == LOW){ // pressed
     wm.setShowStaticFields(true); // enable to set static IP
@@ -174,7 +179,6 @@ void setup(){
     ESP.restart();
     delay(3000); // block everything to make sure it reboots
   }
-  digitalWrite(NOTIFY_LED, HIGH); // LED OFF when connected
   
   Serial.println("wifi init ready");
 
@@ -238,7 +242,6 @@ void loop(){
       failsafeCounter = FAILSAFE_MAX; // reset failsafe value when valid data received
 
       turningServoTargetPosition = map(ch1_data, 1000, 2000, 0, 180); // mapping channel value to angle
-      
       if(ch2_data > 1550){ // forward
         pwm1TargetDirection = false;
         pwm1TargetSpeed = map(ch2_data, 1500, 2000, 0, 255);
@@ -312,8 +315,20 @@ void loop(){
     if(pwm1CurrentSpeed > pwm1TargetSpeed) pwm1CurrentSpeed--;
     else if(pwm1CurrentSpeed < pwm1TargetSpeed) pwm1CurrentSpeed++;
   }
-  if(pwm1CurrentDirection) pwm1.write(255-pwm1CurrentSpeed);
-  else pwm1.write(pwm1CurrentSpeed);
+  if(pwm1CurrentDirection) {
+    if(MOTOR1_USE_PWM) pwm1.write(255-pwm1CurrentSpeed);
+    else{
+      if(pwm1CurrentSpeed > MOTOR1_NOPWM_DEADZONE) pwm1.write(0);
+      else pwm1.write(255);
+    }
+  }
+  else {
+    if(MOTOR1_USE_PWM) pwm1.write(pwm1CurrentSpeed);
+    else {
+      if(pwm1CurrentSpeed > MOTOR1_NOPWM_DEADZONE) pwm1.write(255);
+      else pwm1.write(0);
+    }
+  }
 
   if(pwm2CurrentDirection != pwm2TargetDirection){ // different direction
     if(pwm2CurrentSpeed > 0) pwm2CurrentSpeed--; // speed down
@@ -325,8 +340,20 @@ void loop(){
     if(pwm2CurrentSpeed > pwm2TargetSpeed) pwm2CurrentSpeed--;
     else if(pwm2CurrentSpeed < pwm2TargetSpeed)pwm2CurrentSpeed++;
   }
-  if(pwm2CurrentDirection) pwm2.write(255-pwm2CurrentSpeed);
-  else pwm2.write(pwm2CurrentSpeed);
+  if(pwm2CurrentDirection) {
+    if(MOTOR2_USE_PWM) pwm2.write(255-pwm2CurrentSpeed);
+    else {
+      if(pwm2CurrentSpeed > MOTOR2_NOPWM_DEADZONE) pwm2.write(0);
+      else pwm2.write(255);
+    }
+  }
+  else {
+    if(MOTOR2_USE_PWM) pwm2.write(pwm2CurrentSpeed);
+    else {
+      if(pwm2CurrentSpeed > MOTOR2_NOPWM_DEADZONE) pwm2.write(255);
+      else pwm2.write(0);
+    }
+  }
 
   delay(STEP_DELAY); // one step delay
 }

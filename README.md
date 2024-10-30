@@ -71,10 +71,13 @@ Two motors is driven by external motor driver IC. Remember to add a tiny capacit
 Two LED channels are driven directly from GPIO so the voltage is 3.3V not 5V and current is limited.
 For GPIO-4, it is connected to onboard flash LED. It's too bright normally you don't want it to light up there so just get rid of it and you can gain full control on GPIO-4.
 For GPIO-16, set arduino target board from "AiThinker ESP32-CAM" to "**ESP32 Dev Board**" and check the "**PSRAM**" is set to "**Disabled**". If you don't do this and still use GPIO-16, system will crash immediately after boot.
-
 # Troubleshooting
 ## Motor direction reversed
 As DC motors can run both direction, this happens very often. Just swap two connected cables.
+## Turning mechanism not functional
+There are two comon types of RC car turning mechanism: using a servo that can fine-tuning angle or a motor with gears and spring that only choose left or right. Unfortunally, most of the cheap RC car choose the second one.
+For that, the motor needs a burst power to turn the gear and hold at nearly full power. PWM mode won't provide this power to do so. Set MOTORx_USE_PWM to false to set the behavior to full power only.
+And also the tank style which uses two sets of motors on different side of the car. For this, simply leave both motor output to PWM mode.
 ## WiFi signal unstable
 ![add 1pf between antenna end and GND](/media/antenna_hack.jpg)
 ESP32CAM built-in PCB antenna sometimes cause connection problems. There's a dirty hack: add 1pF capacitor at the end of the antenna and GND. Note the outer chassis is connected to GND as well, no need to scrap the solder mask.
